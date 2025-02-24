@@ -39,10 +39,15 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/cloudwego/hertz/pkg/common/hlog"
-	"github.com/hertz-contrib/sse"
 	"sync"
 	"time"
+
+	"github.com/cloudwego/hertz/pkg/app/client"
+	"github.com/cloudwego/hertz/pkg/common/hlog"
+	"github.com/cloudwego/hertz/pkg/network/standard"
+	"github.com/cloudwego/hertz/pkg/protocol"
+
+	"github.com/hertz-contrib/sse"
 )
 
 var wg sync.WaitGroup
@@ -50,7 +55,16 @@ var wg sync.WaitGroup
 func main() {
 	wg.Add(2)
 	go func() {
-		c := sse.NewClient("http://127.0.0.1:8888/sse")
+		hertzCli, err := client.NewClient(client.WithDialer(standard.NewDialer()))
+		if err != nil {
+			hlog.Errorf("create Hertz Client failed, err: %v", err)
+			return
+		}
+		c, err := sse.NewClientWithOptions(sse.WithHertzClient(hertzCli))
+		if err != nil {
+			hlog.Errorf("create SSE Client failed, err: %v", err)
+			return
+		}
 
 		// touch off when connected to the server
 		c.SetOnConnectCallback(func(ctx context.Context, client *sse.Client) {
@@ -66,12 +80,14 @@ func main() {
 		errChan := make(chan error)
 		ctx, cancel := context.WithCancel(context.Background())
 		go func() {
+			req := &protocol.Request{}
+			req.SetRequestURI("http://127.0.0.1:8888/sse")
 			cErr := c.SubscribeWithContext(ctx, func(msg *sse.Event) {
 				if msg.Data != nil {
 					events <- msg
 					return
 				}
-			})
+			}, sse.WithRequest(req))
 			errChan <- cErr
 		}()
 		go func() {

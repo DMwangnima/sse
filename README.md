@@ -72,93 +72,66 @@ func main() {
 package main
 
 import (
-  "context"
-  "sync"
+	"context"
+	"sync"
 
-  "github.com/hertz-contrib/sse"
+	"github.com/cloudwego/hertz/pkg/app/client"
+	"github.com/cloudwego/hertz/pkg/protocol"
+	"github.com/hertz-contrib/sse"
 
-  "github.com/cloudwego/hertz/pkg/common/hlog"
+	"github.com/cloudwego/hertz/pkg/common/hlog"
 )
 
 var wg sync.WaitGroup
 
 func main() {
-  wg.Add(2)
-  go func() {
-    // pass in the server-side URL to initialize the client	  
-    c := sse.NewClient("http://127.0.0.1:8888/sse")
+	// create Hertz client 
+	hCli, err := client.NewClient()
+	if err != nil {
+		hlog.Errorf("create Hertz client failed, err: %v", err)
+		return
+	}
+	// inject Hertz client to create SSE client
+	c, err := sse.NewClientWithOptions(sse.WithHertzClient(hCli))
+	if err != nil {
+		hlog.Errorf("create SSE client failed, err: %v", err)
+		return
+	}
 
-    // touch off when connected to the server
-    c.SetOnConnectCallback(func(ctx context.Context, client *sse.Client) {
-      hlog.Infof("client1 connect to server %s success with %s method", c.GetURL(), c.GetMethod())
-    })
+	// touch off when connected to the server
+	c.SetOnConnectCallback(func(ctx context.Context, client *sse.Client) {
+		hlog.Infof("client connect to server %s success with %s method", c.GetURL(), c.GetMethod())
+	})
 
-    // touch off when the connection is shutdown
-    c.SetDisconnectCallback(func(ctx context.Context, client *sse.Client) {
-      hlog.Infof("client1 disconnect to server %s success with %s method", c.GetURL(), c.GetMethod())
-    })
+	// touch off when the connection is shutdown
+	c.SetDisconnectCallback(func(ctx context.Context, client *sse.Client) {
+		hlog.Infof("client disconnect to server %s success with %s method", c.GetURL(), c.GetMethod())
+	})
 
-    events := make(chan *sse.Event)
-    errChan := make(chan error)
-    go func() {
-      cErr := c.Subscribe(func(msg *sse.Event) {
-        if msg.Data != nil {
-          events <- msg
-          return
-        }
-      })
-      errChan <- cErr
-    }()
-    for {
-      select {
-      case e := <-events:
-        hlog.Info(e)
-      case err := <-errChan:
-        hlog.CtxErrorf(context.Background(), "err = %s", err.Error())
-        wg.Done()
-        return
-      }
-    }
-  }()
-
-  go func() {
-    // pass in the server-side URL to initialize the client	  
-    c := sse.NewClient("http://127.0.0.1:8888/sse")
-
-    // touch off when connected to the server
-    c.SetOnConnectCallback(func(ctx context.Context, client *sse.Client) {
-      hlog.Infof("client2 %s connect to server success with %s method", c.GetURL(), c.GetMethod())
-    })
-
-    // touch off when the connection is shutdown
-    c.SetDisconnectCallback(func(ctx context.Context, client *sse.Client) {
-      hlog.Infof("client2 %s disconnect to server success with %s method", c.GetURL(), c.GetMethod())
-    })
-
-    events := make(chan *sse.Event)
-    errChan := make(chan error)
-    go func() {
-      cErr := c.Subscribe( func(msg *sse.Event) {
-        if msg.Data != nil {
-          events <- msg
-          return
-        }
-      })
-      errChan <- cErr
-    }()
-    for {
-      select {
-      case e := <-events:
-        hlog.Info(e)
-      case err := <-errChan:
-        hlog.CtxErrorf(context.Background(), "err = %s", err.Error())
-        wg.Done()
-        return
-      }
-    }
-  }()
-
-  wg.Wait()
+	events := make(chan *sse.Event)
+	errChan := make(chan error)
+	go func() {
+		// build the req sent with each SSE request	
+		req := &protocol.Request{}
+		req.SetRequestURI("http://127.0.0.1:8888/sse")
+		cErr := c.Subscribe(func(msg *sse.Event) {
+			if msg.Data != nil {
+				events <- msg
+				return
+			}
+		}, sse.WithRequest(req))
+		errChan <- cErr
+	}()
+	for {
+		select {
+		case e := <-events:
+			hlog.Info(e)
+		case err := <-errChan:
+			hlog.CtxErrorf(context.Background(), "err = %s", err.Error())
+			wg.Done()
+			return
+		}
+	}
 }
 
 ```

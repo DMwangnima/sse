@@ -123,7 +123,6 @@ func main() {
 			hlog.Info(e)
 		case err := <-errChan:
 			hlog.CtxErrorf(context.Background(), "err = %s", err.Error())
-			wg.Done()
 			return
 		}
 	}
